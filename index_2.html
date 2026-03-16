@@ -1,0 +1,1447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CX Quartilization Engine</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  /* ── Brand palette ── */
+  --yellow:  #FFB81C;
+  --charcoal:#24272A;
+  --magenta: #AA0061;
+  --sea:     #475CC7;
+  --ranch:   #FF6A14;
+  --earth:   #218848;
+  --breakfast:#B8CDC8;
+  --specials:#B3A369;
+
+  /* ── Semantic mappings ── */
+  --primary:   var(--sea);       /* nav, buttons, focus rings        */
+  --accent:    var(--magenta);   /* run button, key highlights       */
+  --bg:        #F4F5F6;          /* page background (off-charcoal)   */
+  --card:      #FFFFFF;
+  --text:      var(--charcoal);
+  --muted:     #5A5E63;
+  --faint:     #9EA3A8;
+  --border:    #DDE0E3;
+
+  /* ── Quartile colors ── */
+  --q1-color:  var(--earth);     /* green  — top performers          */
+  --q2-color:  var(--sea);       /* blue   — good performers         */
+  --q3-color:  var(--yellow);    /* yellow — medium performers       */
+  --q4-color:  var(--ranch);     /* orange-red — bottom performers   */
+
+  /* ── Status ── */
+  --green:  var(--earth);
+  --yellow-ui: var(--yellow);
+  --red:    var(--magenta);
+  --blue:   var(--sea);
+}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+/* ─── NAV ─────────────────────────── */
+.navbar{background:linear-gradient(135deg,var(--charcoal) 0%,#3a3e42 100%);padding:0 1.5rem;display:flex;align-items:center;justify-content:space-between;min-height:60px;position:sticky;top:0;z-index:200;box-shadow:0 2px 12px rgba(36,39,42,.45);}
+.nav-brand{color:var(--yellow);font-size:1.05rem;font-weight:700;display:flex;align-items:center;gap:.5rem;}
+.nav-brand svg{opacity:.85;}
+.nav-links{display:flex;gap:.25rem;}
+.nav-btn{background:transparent;border:none;color:rgba(255,255,255,.65);padding:.45rem .9rem;border-radius:.5rem;cursor:pointer;font-size:.85rem;font-weight:600;transition:.2s;}
+.nav-btn:hover{background:rgba(255,255,255,.12);color:#fff;}
+.nav-btn.active{background:var(--sea);color:#fff;}
+.nav-user{color:rgba(255,255,255,.7);font-size:.8rem;display:flex;align-items:center;gap:.5rem;}
+.nav-user span{background:rgba(255,255,255,.15);padding:.25rem .6rem;border-radius:999px;}
+/* ─── MAIN ────────────────────────── */
+.main{max-width:1320px;margin:0 auto;padding:1.5rem;}
+.page{display:none;}.page.active{display:block;}
+/* ─── CARDS ───────────────────────── */
+.card{background:var(--card);border-radius:1rem;padding:1.5rem;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:1.5rem;}
+.card-title{font-size:.95rem;font-weight:700;color:var(--text);margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;}
+/* ─── STATS GRID ──────────────────── */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:1.5rem;}
+.stat-card{background:var(--card);border-radius:.85rem;padding:1.1rem 1.2rem;box-shadow:0 1px 4px rgba(0,0,0,.07);border-left:4px solid var(--sea);}
+.stat-card.green{border-color:var(--earth);}
+.stat-card.yellow{border-color:var(--yellow);}
+.stat-card.red{border-color:var(--ranch);}
+.stat-card.blue{border-color:var(--sea);}
+.stat-val{font-size:1.8rem;font-weight:800;color:var(--text);}
+.stat-lbl{font-size:.75rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-top:.2rem;}
+/* ─── TABLES ──────────────────────── */
+.table-wrap{overflow-x:auto;border-radius:.75rem;}
+table{width:100%;border-collapse:collapse;font-size:.83rem;}
+thead th{background:#F0F1F2;padding:.6rem .8rem;text-align:left;font-weight:700;color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid var(--border);white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--border);transition:.15s;}
+tbody tr:hover{background:#F7F8F9;}
+tbody td{padding:.55rem .8rem;vertical-align:middle;}
+/* Q-badges using brand palette */
+.q-badge{display:inline-block;padding:.2rem .6rem;border-radius:999px;font-size:.72rem;font-weight:700;white-space:nowrap;}
+.q1{background:#D6EFE0;color:#155227;}   /* earth green tint */
+.q2{background:#D9DEFF;color:#263580;}   /* sea blue tint    */
+.q3{background:#FFF3CC;color:#7A5200;}   /* yellow tint      */
+.q4{background:#FFE8D9;color:#8B2E00;}   /* ranch orange tint */
+/* Coaching badges */
+.coaching-badge{display:inline-block;padding:.2rem .6rem;border-radius:.4rem;font-size:.72rem;font-weight:700;}
+.coaching-recognition{background:#D6EFE0;color:#155227;}
+.coaching-monthly{background:#D9DEFF;color:#263580;}
+.coaching-biweekly{background:#FFF3CC;color:#7A5200;}
+.coaching-weekly{background:#FFE8D9;color:#8B2E00;}
+.target-ok{color:var(--earth);font-weight:700;}
+.target-fail{color:var(--magenta);font-weight:700;}
+.override-flag{font-size:.7rem;color:var(--magenta);font-style:italic;max-width:220px;}
+/* ─── QUARTILE GROUP HEADERS ──────── */
+.q-group-header{padding:.5rem 1rem;font-weight:800;font-size:.78rem;text-transform:uppercase;letter-spacing:.07em;border-radius:.4rem;margin:.75rem 0 .25rem;}
+.q-group-header.q1h{background:#D6EFE0;color:#155227;}
+.q-group-header.q2h{background:#D9DEFF;color:#263580;}
+.q-group-header.q3h{background:#FFF3CC;color:#7A5200;}
+.q-group-header.q4h{background:#FFE8D9;color:#8B2E00;}
+/* ─── BUTTONS ─────────────────────── */
+.btn{display:inline-flex;align-items:center;gap:.4rem;padding:.55rem 1.1rem;border:none;border-radius:.6rem;font-size:.85rem;font-weight:600;cursor:pointer;transition:.15s;text-decoration:none;}
+.btn-primary{background:var(--sea);color:#fff;}.btn-primary:hover{background:#3a4db0;}
+.btn-run{background:linear-gradient(135deg,var(--magenta),#cc0075);color:#fff;font-size:1rem;padding:.7rem 1.8rem;border-radius:.75rem;box-shadow:0 4px 14px rgba(170,0,97,.35);transition:.2s;}
+.btn-run:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(170,0,97,.45);}
+.btn-run:active{transform:none;}
+.btn-danger{background:#FFE8D9;color:#8B2E00;}.btn-danger:hover{background:#FFD5BB;}
+.btn-sm{padding:.3rem .7rem;font-size:.78rem;}
+.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--muted);}.btn-ghost:hover{background:var(--bg);}
+/* ─── FORMS ───────────────────────── */
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;}
+.form-group{display:flex;flex-direction:column;gap:.35rem;}
+label{font-size:.78rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+input,select{padding:.5rem .75rem;border:1.5px solid var(--border);border-radius:.5rem;font-size:.88rem;background:#fff;color:var(--text);transition:.15s;outline:none;}
+input:focus,select:focus{border-color:var(--sea);box-shadow:0 0 0 3px rgba(71,92,199,.15);}
+/* ─── RUN PANEL ───────────────────── */
+.run-panel{background:linear-gradient(135deg,#F5E6EE,#EEF0FA);border:2px solid #E2C4D4;border-radius:1rem;padding:1.5rem;margin-bottom:1.5rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;}
+.run-panel-left h2{font-size:1.15rem;font-weight:800;color:var(--magenta);margin-bottom:.25rem;}
+.run-panel-left p{font-size:.85rem;color:var(--muted);}
+/* ─── METHODOLOGY ACCORDION ───────── */
+.accordion{border:1px solid var(--border);border-radius:.75rem;overflow:hidden;margin-bottom:.75rem;}
+.accordion-header{padding:.85rem 1rem;background:#F8FAFC;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:.88rem;color:var(--text);user-select:none;}
+.accordion-header:hover{background:#F1F5F9;}
+.accordion-body{padding:1rem 1rem 1rem;background:#fff;border-top:1px solid var(--border);font-size:.85rem;line-height:1.7;color:var(--muted);display:none;}
+.accordion-body.open{display:block;}
+.accordion-chevron{transition:.25s;font-size:.7rem;}
+.accordion-chevron.open{transform:rotate(180deg);}
+.method-formula{background:#F0F1F2;border-left:3px solid var(--sea);padding:.6rem .85rem;border-radius:.4rem;font-family:monospace;font-size:.82rem;color:var(--text);margin:.5rem 0;}
+.method-matrix{border-collapse:collapse;width:100%;margin:.5rem 0;font-size:.8rem;}
+.method-matrix th,.method-matrix td{border:1px solid var(--border);padding:.4rem .6rem;text-align:left;}
+.method-matrix th{background:#F8FAFC;font-weight:700;color:var(--muted);}
+/* ─── VALIDATION PANEL ────────────── */
+.val-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem;}
+.val-kpi-card{background:#F8FAFC;border-radius:.75rem;padding:1rem;border:1px solid var(--border);}
+.val-kpi-title{font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.6rem;}
+.val-row{display:flex;justify-content:space-between;font-size:.82rem;padding:.2rem 0;border-bottom:1px solid var(--border);}
+.val-row:last-child{border:none;}
+.val-key{color:var(--muted);}
+.val-val{font-weight:700;color:var(--text);}
+.outlier-chip{background:#FEE2E2;color:var(--red);padding:.15rem .45rem;border-radius:999px;font-size:.72rem;font-weight:600;}
+/* ─── CHARTS ──────────────────────── */
+.charts-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1.25rem;}
+.chart-box{background:var(--card);border-radius:1rem;padding:1.25rem;box-shadow:0 1px 4px rgba(0,0,0,.07);}
+.chart-box canvas{max-height:280px;}
+/* ─── WORKLOAD SUMMARY ────────────── */
+.workload-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:1rem;}
+.wl-card{border-radius:.75rem;padding:1rem;text-align:center;}
+.wl-card.weekly{background:#FFE8D9;}.wl-card.biweekly{background:#FFF3CC;}.wl-card.monthly{background:#D9DEFF;}.wl-card.hours{background:#D6EFE0;}
+.wl-num{font-size:2rem;font-weight:800;}.wl-lbl{font-size:.75rem;font-weight:600;text-transform:uppercase;margin-top:.2rem;}
+/* ─── HEALTH BANNER ───────────────── */
+.health-banner{border-radius:.85rem;padding:1rem 1.25rem;margin-bottom:1.5rem;border:1px solid;}
+.health-banner.good{background:#D6EFE0;border-color:#A8D8B5;color:#155227;}
+.health-banner.warn{background:#FFF3CC;border-color:#FFE08A;color:#7A5200;}
+.health-banner.bad{background:#FFE8D9;border-color:#FFC9A3;color:#8B2E00;}
+/* ─── MODAL ───────────────────────── */
+.modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;z-index:500;padding:1rem;}
+.modal-overlay.open{display:flex;}
+.modal{background:#fff;border-radius:1.25rem;padding:1.75rem;width:100%;max-width:520px;box-shadow:0 20px 60px rgba(0,0,0,.18);}
+.modal-title{font-size:1.1rem;font-weight:800;margin-bottom:1.25rem;color:var(--text);}
+.modal-actions{display:flex;gap:.75rem;justify-content:flex-end;margin-top:1.25rem;}
+/* ─── LOADING / OVERLAY ───────────── */
+#loading-overlay{position:fixed;inset:0;background:rgba(241,245,249,.9);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:1rem;}
+.spinner{width:40px;height:40px;border:4px solid #D9DEFF;border-top-color:var(--sea);border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loading-overlay p{color:var(--muted);font-weight:600;}
+/* ─── LOGIN ───────────────────────── */
+#login-overlay{position:fixed;inset:0;background:linear-gradient(135deg,var(--charcoal) 0%,#3a3e42 60%,var(--sea) 100%);display:flex;align-items:center;justify-content:center;z-index:1000;padding:1rem;}
+.login-card{background:#fff;border-radius:1.5rem;padding:2.5rem;width:100%;max-width:420px;box-shadow:0 25px 60px rgba(0,0,0,.25);text-align:center;}
+.login-logo{font-size:2.5rem;margin-bottom:1rem;}
+.login-card h1{font-size:1.4rem;font-weight:800;color:var(--text);margin-bottom:.4rem;}
+.login-card p{color:var(--muted);font-size:.88rem;margin-bottom:1.5rem;}
+.login-card input{width:100%;margin-bottom:1rem;}
+/* ─── TOAST ───────────────────────── */
+#toast{position:fixed;bottom:2rem;right:2rem;color:#fff;padding:.85rem 1.4rem;border-radius:.75rem;font-weight:700;font-size:.88rem;transform:translateY(120px);opacity:0;transition:all .3s cubic-bezier(.34,1.56,.64,1);z-index:10000;max-width:350px;}
+#toast.show{transform:translateY(0);opacity:1;}
+/* ─── SETUP BANNER ────────────────── */
+.setup-banner{background:#FFF3CC;border:1.5px solid #FFE08A;border-radius:.85rem;padding:1rem 1.25rem;margin-bottom:1.25rem;font-size:.85rem;color:#7A5200;}
+.setup-banner strong{font-weight:800;}
+/* ─── METHODOLOGY STEP CIRCLES ────── */
+.step-list{display:flex;flex-direction:column;gap:.75rem;}
+.step-item{display:flex;align-items:flex-start;gap:.85rem;}
+.step-num{min-width:1.8rem;height:1.8rem;border-radius:50%;background:var(--sea);color:#fff;font-size:.78rem;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.step-content strong{display:block;font-size:.85rem;font-weight:700;color:var(--text);}
+.step-content p{font-size:.82rem;color:var(--muted);margin-top:.15rem;}
+/* ─── RESPONSIVE ──────────────────── */
+@media(max-width:768px){
+  .main{padding:1rem;}.nav-links .nav-btn{padding:.35rem .6rem;font-size:.78rem;}
+  .run-panel{flex-direction:column;}.charts-grid{grid-template-columns:1fr;}
+}
+</style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="loading-overlay" style="display:none">
+  <div class="spinner"></div>
+  <p id="loading-msg">Loading data…</p>
+</div>
+
+<!-- Login -->
+<div id="login-overlay">
+  <div class="login-card">
+    <div class="login-logo">📊</div>
+    <h1>CX Quartilization Engine</h1>
+    <p>Performance analytics & coaching scheduler for CX teams</p>
+    <div class="form-group" style="text-align:left">
+      <label>Your Name</label>
+      <input id="login-name" type="text" placeholder="e.g. Maria García">
+    </div>
+    <div class="form-group" style="text-align:left;margin-top:.75rem">
+      <label>Your Email</label>
+      <input id="login-email" type="email" placeholder="you@company.com">
+    </div>
+    <button class="btn btn-primary" style="width:100%;margin-top:1.25rem;padding:.7rem" onclick="doLogin()">Enter Dashboard →</button>
+    <p style="margin-top:1rem;font-size:.75rem;color:#94A3B8;">Your info is stored locally only.</p>
+  </div>
+</div>
+
+<!-- Navbar -->
+<nav class="navbar" id="main-navbar" style="display:none">
+  <div class="nav-brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg>
+    CX Quartilization Engine
+  </div>
+  <div class="nav-links">
+    <button class="nav-btn active" data-page="dashboard" onclick="navTo('dashboard')">Dashboard</button>
+    <button class="nav-btn" data-page="agents" onclick="navTo('agents')">Agents</button>
+    <button class="nav-btn" data-page="results" onclick="navTo('results')">Results</button>
+    <button class="nav-btn" data-page="schedule" onclick="navTo('schedule')">Schedule</button>
+    <button class="nav-btn" data-page="methodology" onclick="navTo('methodology')">How It Works</button>
+    <button class="nav-btn" id="btn-admin" data-page="admin" onclick="navTo('admin')" style="display:none">⚙️ Admin</button>
+  </div>
+  <div class="nav-user">Logged in as <span id="nav-user-name">—</span>
+    <button class="btn btn-sm btn-ghost" style="color:rgba(255,255,255,.7);border-color:rgba(255,255,255,.3)" onclick="doLogout()">Logout</button>
+  </div>
+</nav>
+
+<div class="main">
+
+<!-- ═══ DASHBOARD ═══════════════════════════════════════════════════════════ -->
+<div id="page-dashboard" class="page active">
+  <div class="setup-banner" id="setup-banner" style="display:none">
+    ⚠️ <strong>Setup needed:</strong> Please update <code>DEFAULT_SCRIPT_URL</code> in the HTML with your Google Apps Script deployment URL, then refresh.
+  </div>
+
+  <div class="run-panel">
+    <div class="run-panel-left">
+      <h2>🚀 Run Quartilization Engine</h2>
+      <p>Normalizes KPIs, calculates composite scores, assigns quartiles with override logic, and outputs a coaching schedule.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.5rem">
+      <button class="btn btn-run" onclick="runQuartilization()">▶ Run Quartilization</button>
+      <span style="font-size:.75rem;color:var(--muted)" id="last-run-label"></span>
+    </div>
+  </div>
+
+  <div class="stats-grid" id="dashboard-stats">
+    <div class="stat-card"><div class="stat-val" id="stat-agents">—</div><div class="stat-lbl">Total Agents</div></div>
+    <div class="stat-card green"><div class="stat-val" id="stat-q1">—</div><div class="stat-lbl">Q1 Top Performers</div></div>
+    <div class="stat-card blue"><div class="stat-val" id="stat-q2">—</div><div class="stat-lbl">Q2 Good Performers</div></div>
+    <div class="stat-card yellow"><div class="stat-val" id="stat-q3">—</div><div class="stat-lbl">Q3 Medium Performers</div></div>
+    <div class="stat-card red"><div class="stat-val" id="stat-q4">—</div><div class="stat-lbl">Q4 Bottom Performers</div></div>
+    <div class="stat-card"><div class="stat-val" id="stat-weekly">—</div><div class="stat-lbl">Weekly Sessions</div></div>
+  </div>
+
+  <div id="health-banner-wrap"></div>
+
+  <div class="charts-grid">
+    <div class="chart-box"><canvas id="chart-quartile"></canvas></div>
+    <div class="chart-box"><canvas id="chart-coaching"></canvas></div>
+    <div class="chart-box"><canvas id="chart-kpi-avg"></canvas></div>
+    <div class="chart-box"><canvas id="chart-composite"></canvas></div>
+  </div>
+</div>
+
+<!-- ═══ AGENTS ════════════════════════════════════════════════════════════ -->
+<div id="page-agents" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;flex-wrap:wrap;gap:.75rem">
+    <h2 style="font-size:1.15rem;font-weight:800">Agent Data</h2>
+    <button class="btn btn-primary" onclick="openAddAgent()">+ Add Agent</button>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1rem;align-items:flex-end">
+      <input id="agent-search" type="text" placeholder="🔍 Search agents…" style="width:200px" oninput="renderAgentsTable()">
+      <select id="filter-agent-supervisor" onchange="renderAgentsTable()" style="font-size:.82rem;padding:.4rem .7rem">
+        <option value="">All Supervisors</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="exportAgentsCSV()">⬇ Export Agents CSV</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>ID</th><th>Agent Name</th><th>Supervisor</th>
+          <th>TPH <small style="font-weight:400">(target 5.0)</small></th>
+          <th>CSAT% <small style="font-weight:400">(target 80)</small></th>
+          <th>IQS% <small style="font-weight:400">(target 85)</small></th>
+          <th>Period</th><th>Actions</th>
+        </tr></thead>
+        <tbody id="agents-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ RESULTS ════════════════════════════════════════════════════════════ -->
+<div id="page-results" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;flex-wrap:wrap;gap:.75rem">
+    <h2 style="font-size:1.15rem;font-weight:800">Master Ranked Table</h2>
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:center">
+      <select id="filter-supervisor" onchange="renderResultsTable()" style="font-size:.82rem;padding:.4rem .7rem">
+        <option value="">All Supervisors</option>
+      </select>
+      <select id="filter-quartile" onchange="renderResultsTable()" style="font-size:.82rem;padding:.4rem .7rem">
+        <option value="">All Quartiles</option>
+        <option value="Q1">Q1 — Top</option>
+        <option value="Q2">Q2 — Good</option>
+        <option value="Q3">Q3 — Medium</option>
+        <option value="Q4">Q4 — Bottom</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="exportResults()">⬇ Export CSV</button>
+    </div>
+  </div>
+  <div id="validation-section" style="display:none" class="card">
+    <div class="card-title">📋 Data Validation Report (Step 1)</div>
+    <div id="validation-body"></div>
+  </div>
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>#</th><th>Agent</th><th>Supervisor</th>
+          <th>TPH</th><th>CSAT%</th><th>IQS%</th>
+          <th>TPH vs Target</th><th>CSAT vs Target</th><th>IQS vs Target</th>
+          <th>KPIs Below</th>
+          <th title="Composite Score">Score</th>
+          <th>Initial Q</th><th>Final Q</th>
+          <th>Override</th><th>Coaching</th>
+        </tr></thead>
+        <tbody id="results-tbody"></tbody>
+      </table>
+    </div>
+    <p id="results-empty" style="text-align:center;color:var(--muted);padding:2rem;font-style:italic;display:none">No results yet — click "Run Quartilization" on the Dashboard.</p>
+  </div>
+</div>
+
+<!-- ═══ COACHING SCHEDULE ════════════════════════════════════════════════ -->
+<div id="page-schedule" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;flex-wrap:wrap;gap:.75rem">
+    <h2 style="font-size:1.15rem;font-weight:800">Coaching Schedule</h2>
+    <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+      <select id="filter-schedule-supervisor" onchange="renderSchedule()" style="font-size:.82rem;padding:.4rem .7rem">
+        <option value="">All Supervisors</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="exportScheduleCSV()">⬇ Export Schedule CSV</button>
+    </div>
+  </div>
+
+  <div id="workload-wrap" class="card" style="display:none">
+    <div class="card-title">📦 Supervisor Workload Summary</div>
+    <div class="workload-grid" id="workload-grid"></div>
+    <div id="supervisor-breakdown" style="margin-top:1.25rem"></div>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Priority</th><th>Agent</th><th>Supervisor</th><th>Quartile</th>
+          <th>Coaching Frequency</th><th>Focus Area</th>
+        </tr></thead>
+        <tbody id="schedule-tbody"></tbody>
+      </table>
+    </div>
+    <p id="schedule-empty" style="text-align:center;color:var(--muted);padding:2rem;font-style:italic;display:none">No schedule yet — click "Run Quartilization" on the Dashboard.</p>
+  </div>
+</div>
+
+<!-- ═══ METHODOLOGY ══════════════════════════════════════════════════════ -->
+<div id="page-methodology" class="page">
+  <h2 style="font-size:1.15rem;font-weight:800;margin-bottom:.25rem">How the Engine Works</h2>
+  <p style="color:var(--muted);font-size:.88rem;margin-bottom:1.5rem">Full methodology — every step explained for non-analysts.</p>
+
+  <!-- KPI Config -->
+  <div class="card" style="margin-bottom:1rem">
+    <div class="card-title">⚙️ Current KPI Configuration</div>
+    <table style="font-size:.85rem">
+      <thead><tr><th>KPI</th><th>Full Name</th><th>Target</th><th>Weight</th><th>Rationale</th></tr></thead>
+      <tbody>
+        <tr><td><strong>TPH</strong></td><td>Tickets Per Hour</td><td id="m-tph-target">5.0</td><td>40%</td><td>Core productivity measure</td></tr>
+        <tr><td><strong>CSAT</strong></td><td>Customer Satisfaction Score</td><td id="m-csat-target">80%</td><td>40%</td><td>Direct customer impact</td></tr>
+        <tr><td><strong>IQS</strong></td><td>Internal Quality Score</td><td id="m-iqs-target">85%</td><td>20%</td><td>Process compliance (secondary)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Steps -->
+  <div class="accordion">
+    <div class="accordion-header" onclick="toggleAccordion(this)">
+      <span>📊 Step 1 — Data Validation</span><span class="accordion-chevron">▼</span>
+    </div>
+    <div class="accordion-body">
+      <div class="step-list">
+        <div class="step-item"><div class="step-num">1</div><div class="step-content"><strong>Count & completeness check</strong><p>Total agent count, missing values per KPI.</p></div></div>
+        <div class="step-item"><div class="step-num">2</div><div class="step-content"><strong>Descriptive statistics</strong><p>Team average, min, max for each KPI.</p></div></div>
+        <div class="step-item"><div class="step-num">3</div><div class="step-content"><strong>Target attainment rate</strong><p>% of team currently meeting each individual target.</p></div></div>
+        <div class="step-item"><div class="step-num">4</div><div class="step-content"><strong>Outlier flagging</strong><p>Any agent &gt;2 standard deviations from mean is flagged for manual review (not excluded from scoring).</p></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="accordion">
+    <div class="accordion-header" onclick="toggleAccordion(this)">
+      <span>🔢 Step 2 — Min-Max Normalization</span><span class="accordion-chevron">▼</span>
+    </div>
+    <div class="accordion-body">
+      <p>Because TPH, CSAT, and IQS use different scales, each KPI is normalized to a 0–1 range before combining:</p>
+      <div class="method-formula">Normalized = (Agent Value − Team Min) / (Team Max − Team Min)</div>
+      <p>An agent at the team minimum gets 0.0; the top agent gets 1.0. All others are proportional in between. This prevents a KPI with larger absolute numbers (e.g., CSAT%) from dominating a KPI with smaller numbers (e.g., TPH).</p>
+    </div>
+  </div>
+
+  <div class="accordion">
+    <div class="accordion-header" onclick="toggleAccordion(this)">
+      <span>🏆 Step 3 — Weighted Composite Score</span><span class="accordion-chevron">▼</span>
+    </div>
+    <div class="accordion-body">
+      <div class="method-formula">Composite = (TPH_norm × 0.40) + (CSAT_norm × 0.40) + (IQS_norm × 0.20)</div>
+      <p>Weights reflect business priorities: CSAT and TPH are equally important (40% each) as they directly measure customer impact and output. IQS is secondary (20%) — process compliance matters, but shouldn't penalize an agent who is highly productive and customer-positive.</p>
+    </div>
+  </div>
+
+  <div class="accordion">
+    <div class="accordion-header" onclick="toggleAccordion(this)">
+      <span>📐 Step 4 — Two-Stage Quartile Assignment</span><span class="accordion-chevron">▼</span>
+    </div>
+    <div class="accordion-body">
+      <p><strong>Stage A — Initial placement:</strong> Rank agents by Composite Score (descending). Assign by relative rank: top 25% → Q1, 26–50% → Q2, 51–75% → Q3, bottom 25% → Q4.</p>
+      <p style="margin-top:.75rem"><strong>Stage B — Worst KPI Override:</strong> Check each agent's worst normalized KPI score:</p>
+      <ul style="margin:.5rem 0 .5rem 1.25rem">
+        <li><strong>&lt; 0.25 (bottom quartile range):</strong> Agent cannot be placed higher than Q3, regardless of composite. Flag: "OVERRIDE — Worst KPI drag"</li>
+        <li><strong>&lt; 0.10 (critical underperformance):</strong> Agent placed directly in Q4. Flag: "OVERRIDE — Critical KPI gap"</li>
+      </ul>
+      <p><em>Why overrides?</em> Without this, an agent could score well in two KPIs and mask a critical failure in the third. The override ensures no coaching gap is hidden.</p>
+      <p style="margin-top:.75rem"><strong>Tie-handling:</strong> Identical composite scores at a boundary → both assigned to the lower quartile (conservative coaching bias).</p>
+      <p style="margin-top:.5rem"><strong>Non-divisible teams:</strong> Extra agents go to Q2 (middle-up bias — under-coaching a borderline agent is preferable to overloading supervisors).</p>
+    </div>
+  </div>
+
+  <div class="accordion">
+    <div class="accordion-header" onclick="toggleAccordion(this)">
+      <span>📅 Step 5–6 — Coaching Frequency Matrix</span><span class="accordion-chevron">▼</span>
+    </div>
+    <div class="accordion-body">
+      <p>Coaching intensity is determined by two dimensions: <strong>quartile position</strong> and <strong>how many KPIs are below target</strong>.</p>
+      <table class="method-matrix" style="margin-top:.75rem">
+        <thead><tr><th>Quartile</th><th>0 KPIs below</th><th>1 KPI below</th><th>2+ KPIs below</th></tr></thead>
+        <tbody>
+          <tr><td><span class="q-badge q1">Q1 Top</span></td><td>Recognition only</td><td>Monthly check-in</td><td>Bi-weekly coaching</td></tr>
+          <tr><td><span class="q-badge q2">Q2 Good</span></td><td>Monthly check-in</td><td>Bi-weekly coaching</td><td>Bi-weekly coaching</td></tr>
+          <tr><td><span class="q-badge q3">Q3 Medium</span></td><td>Bi-weekly coaching</td><td>Bi-weekly coaching</td><td>Weekly coaching</td></tr>
+          <tr><td><span class="q-badge q4">Q4 Bottom</span></td><td>Bi-weekly coaching</td><td>Weekly coaching</td><td>Weekly coaching</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ ADMIN ══════════════════════════════════════════════════════════ -->
+<div id="page-admin" class="page">
+  <h2 style="font-size:1.15rem;font-weight:800;margin-bottom:1.25rem">Admin Settings</h2>
+
+  <div class="card">
+    <div class="card-title">🚀 Share with Your Team — GitHub Pages Deployment</div>
+    <div style="font-size:.85rem;color:var(--muted);line-height:1.75">
+      <p style="margin-bottom:.75rem">Host this page for free on GitHub Pages so anyone on your team can access it via a shared link — no installation needed.</p>
+      <div class="step-list">
+        <div class="step-item">
+          <div class="step-num" style="background:var(--charcoal)">1</div>
+          <div class="step-content">
+            <strong>Create a GitHub account</strong>
+            <p>Go to <a href="https://github.com" target="_blank" style="color:var(--sea)">github.com</a> and sign up for a free account if you don't have one.</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num" style="background:var(--charcoal)">2</div>
+          <div class="step-content">
+            <strong>Create a new repository</strong>
+            <p>Click <strong>+</strong> → <em>New repository</em>. Name it e.g. <code>cx-quartilization</code>. Set it to <strong>Public</strong>. Click <em>Create repository</em>.</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num" style="background:var(--charcoal)">3</div>
+          <div class="step-content">
+            <strong>Upload index.html</strong>
+            <p>In your new repo, click <em>Add file → Upload files</em>. Drag and drop <code>index.html</code>. Commit the file.</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num" style="background:var(--charcoal)">4</div>
+          <div class="step-content">
+            <strong>Enable GitHub Pages</strong>
+            <p>Go to <em>Settings → Pages</em>. Under <em>Source</em>, select <strong>Deploy from branch → main → / (root)</strong>. Click Save.</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num" style="background:var(--charcoal)">5</div>
+          <div class="step-content">
+            <strong>Share the link</strong>
+            <p>After ~1 minute your page will be live at: <code>https://YOUR-USERNAME.github.io/cx-quartilization/</code>. Share this URL with your team. Each person logs in with their own name/email.</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-num" style="background:var(--magenta)">!</div>
+          <div class="step-content">
+            <strong>Important: update the script URL first</strong>
+            <p>Before uploading, paste your Google Apps Script <code>/exec</code> URL into the <em>Backend URL</em> field above and save — or edit it directly in <code>index.html</code> at the <code>DEFAULT_SCRIPT_URL</code> constant.</p>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:1rem;padding:.85rem 1rem;background:#F0F1F2;border-radius:.6rem;font-size:.82rem">
+        💡 <strong>Team access tip:</strong> Any teammate who opens the link can view data immediately. To let them add/edit agents, go to <em>User Roles</em> below and add their email as <strong>coach</strong>. Admins can also change KPI targets and weights.
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">🔗 Backend URL</div>
+    <div style="display:flex;gap:.75rem;align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="flex:1;min-width:280px">
+        <label>Google Apps Script Exec URL</label>
+        <input id="admin-url" type="text" placeholder="https://script.google.com/macros/s/.../exec">
+      </div>
+      <button class="btn btn-primary" onclick="saveUrl()">Save & Reconnect</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">🎯 KPI Targets & Weights</div>
+    <div class="form-grid" style="margin-bottom:1rem">
+      <div class="form-group"><label>TPH Target</label><input id="cfg-tph-target" type="number" step="0.1"></div>
+      <div class="form-group"><label>CSAT Target (%)</label><input id="cfg-csat-target" type="number" step="1"></div>
+      <div class="form-group"><label>IQS Target (%)</label><input id="cfg-iqs-target" type="number" step="1"></div>
+      <div class="form-group"><label>TPH Weight (e.g. 0.40)</label><input id="cfg-tph-weight" type="number" step="0.05"></div>
+      <div class="form-group"><label>CSAT Weight</label><input id="cfg-csat-weight" type="number" step="0.05"></div>
+      <div class="form-group"><label>IQS Weight</label><input id="cfg-iqs-weight" type="number" step="0.05"></div>
+    </div>
+    <button class="btn btn-primary" onclick="saveConfig()">Save Configuration</button>
+    <span style="font-size:.78rem;color:var(--muted);margin-left:.75rem">Weights must sum to 1.0</span>
+  </div>
+
+  <div class="card">
+    <div class="card-title">👥 User Roles</div>
+    <p style="font-size:.83rem;color:var(--muted);margin-bottom:1rem">Roles: <strong>admin</strong> (full access), <strong>coach</strong> (can add/edit), <strong>viewer</strong> (read-only).</p>
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1rem;align-items:flex-end">
+      <div class="form-group"><label>Email</label><input id="role-email" type="email" placeholder="user@company.com" style="width:220px"></div>
+      <div class="form-group"><label>Role</label>
+        <select id="role-select"><option value="coach">Coach</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select>
+      </div>
+      <button class="btn btn-primary" onclick="addRole()">Add / Update Role</button>
+    </div>
+    <div id="roles-list"></div>
+  </div>
+</div>
+
+</div><!-- /main -->
+
+<!-- ═══ MODALS ════════════════════════════════════════════════════════════ -->
+<!-- Add Agent Modal -->
+<div class="modal-overlay" id="modal-agent">
+  <div class="modal">
+    <div class="modal-title" id="modal-agent-title">Add Agent</div>
+    <div class="form-grid">
+      <div class="form-group"><label>Agent ID</label><input id="f-agentId" type="text" placeholder="e.g. A013"></div>
+      <div class="form-group"><label>Agent Name</label><input id="f-agentName" type="text" placeholder="e.g. Maria García"></div>
+      <div class="form-group"><label>Supervisor</label><input id="f-supervisor" type="text" placeholder="e.g. Sara Lopez" list="supervisor-datalist"><datalist id="supervisor-datalist"></datalist></div>
+      <div class="form-group"><label>TPH (Tickets/Hour)</label><input id="f-tph" type="number" step="0.1" placeholder="e.g. 4.7"></div>
+      <div class="form-group"><label>CSAT (%)</label><input id="f-csat" type="number" step="1" placeholder="e.g. 78"></div>
+      <div class="form-group"><label>IQS (%)</label><input id="f-iqs" type="number" step="1" placeholder="e.g. 83"></div>
+      <div class="form-group"><label>Period</label><input id="f-period" type="text" value="Last 30 days"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-agent')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAgent()">Save Agent</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Confirm Modal -->
+<div class="modal-overlay" id="modal-confirm">
+  <div class="modal">
+    <div class="modal-title">⚠️ Confirm Delete</div>
+    <p id="confirm-msg" style="color:var(--muted);font-size:.88rem">Are you sure?</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-confirm')">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmDelete()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>'use strict';
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
+const DEFAULT_SCRIPT_URL  = 'https://script.google.com/macros/s/AKfycbwFOJRH02r-ms0qxLz4imIN2Rs1VU5EuZo2FTVAs2E0GAT-VDCPghDhmNq2L8Khm3j0gg/exec';
+const DEFAULT_ADMIN_EMAIL = 'cinthiavelez@cookunity.com';
+const CFG_KEY  = 'cx_quartile_cfg_v1';
+const USER_KEY = 'cx_quartile_usr_v1';
+
+let cachedData    = [];   // agents
+let cachedResults = [];   // quartilization results
+let cachedConfig  = {};
+let cachedRole    = 'viewer';
+let lastRunData   = null;
+let editingAgentId = null;
+let deleteAgentId  = null;
+let currentPage   = 'dashboard';
+let charts        = {};
+
+// ─── USER ─────────────────────────────────────────────────────────────────────
+function getUser() { try { return JSON.parse(localStorage.getItem(USER_KEY)); } catch { return null; } }
+function setUser(u) { localStorage.setItem(USER_KEY, JSON.stringify(u)); }
+
+function doLogin() {
+  const name  = document.getElementById('login-name').value.trim();
+  const email = document.getElementById('login-email').value.trim().toLowerCase();
+  if (!name || !email) { showToast('Please enter your name and email.', '#EF4444'); return; }
+  setUser({ name, email });
+  document.getElementById('login-overlay').style.display = 'none';
+  document.getElementById('main-navbar').style.display   = '';
+  updateNavUser();
+  initApp();
+}
+
+function doLogout() {
+  localStorage.removeItem(USER_KEY);
+  location.reload();
+}
+
+function updateNavUser() {
+  const u = getUser();
+  if (u) document.getElementById('nav-user-name').textContent = u.name;
+}
+
+function scriptUrl() {
+  const saved = localStorage.getItem(CFG_KEY + '_url');
+  return saved || DEFAULT_SCRIPT_URL;
+}
+
+// ─── BOOT ─────────────────────────────────────────────────────────────────────
+async function initApp() {
+  updateNavUser();
+  if (scriptUrl() === 'YOUR_EXEC_URL_HERE') {
+    document.getElementById('setup-banner').style.display = '';
+    renderDashboardEmpty();
+    return;
+  }
+  await apiFetch();
+  renderDashboard();
+}
+
+// ─── API ──────────────────────────────────────────────────────────────────────
+async function apiFetch() {
+  showLoading(true, 'Loading data from Google Sheets…');
+  try {
+    const u   = getUser();
+    const url = scriptUrl() + (u ? `?email=${encodeURIComponent(u.email)}` : '');
+    const res = await fetch(url, { redirect: 'follow' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    cachedData    = (data.agents  || []).map(r => ({ ...r }));
+    cachedResults = (data.results || []).map(r => ({ ...r }));
+    cachedConfig  = data.config || {};
+    cachedRole    = data.role   || 'viewer';
+    updateRoleUI();
+    populateAdminConfig();
+    populateSupervisorFilters();
+    showToast('✓ Data loaded', '#10B981');
+  } catch (err) {
+    showToast('⚠️ Could not connect to backend. Check your URL in Admin.', '#EF4444');
+    console.error(err);
+  } finally {
+    showLoading(false);
+  }
+}
+
+// ─── SUPERVISOR FILTER HELPERS ────────────────────────────────────────────────
+function getSupervisors(fromResults = false) {
+  const source = fromResults ? cachedResults : cachedData;
+  const key    = fromResults ? 'supervisor' : 'supervisor';
+  const set = new Set(source.map(r => String(r[key] || '').trim()).filter(Boolean));
+  return [...set].sort();
+}
+
+function populateSupervisorFilters() {
+  const svFromAgents  = getSupervisors(false);
+  const svFromResults = getSupervisors(true);
+
+  // Agent page filter
+  fillSupervisorSelect('filter-agent-supervisor', svFromAgents);
+  // Results page filter
+  fillSupervisorSelect('filter-supervisor', svFromResults);
+  // Schedule page filter
+  fillSupervisorSelect('filter-schedule-supervisor', svFromResults);
+  // Datalist for add/edit modal autocomplete
+  const dl = document.getElementById('supervisor-datalist');
+  if (dl) dl.innerHTML = svFromAgents.map(s => `<option value="${esc(s)}">`).join('');
+}
+
+function fillSupervisorSelect(id, supervisors) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const cur = el.value;
+  el.innerHTML = `<option value="">All Supervisors</option>` +
+    supervisors.map(s => `<option value="${esc(s)}"${s === cur ? ' selected' : ''}>${esc(s)}</option>`).join('');
+}
+  const u = getUser();
+  const res = await fetch(scriptUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ ...body, email: u?.email || '' }),
+    redirect: 'follow',
+  });
+  return res.json();
+}
+
+// ─── RUN QUARTILIZATION ────────────────────────────────────────────────────────
+async function runQuartilization() {
+  if (cachedData.length === 0) {
+    showToast('⚠️ No agents found. Add agents first.', '#F59E0B');
+    return;
+  }
+  showLoading(true, 'Running quartilization engine…');
+  try {
+    const data = await apiPost({ action: 'runQuartile' });
+    if (data.error) throw new Error(data.error);
+    lastRunData   = data;
+    cachedResults = data.results || [];
+    document.getElementById('last-run-label').textContent =
+      'Last run: ' + new Date(data.runDate).toLocaleString();
+    populateSupervisorFilters();
+    renderDashboard();
+    renderResultsTable();
+    renderSchedule();
+    showToast('✓ Quartilization complete!', '#10B981');
+  } catch (err) {
+    showToast('Error: ' + err.message, '#EF4444');
+  } finally {
+    showLoading(false);
+  }
+}
+
+// ─── NAVIGATION ───────────────────────────────────────────────────────────────
+const PAGES = ['dashboard','agents','results','schedule','methodology','admin'];
+function navTo(page) {
+  currentPage = page;
+  PAGES.forEach(p => {
+    const el = document.getElementById('page-' + p);
+    if (el) el.classList.toggle('active', p === page);
+  });
+  document.querySelectorAll('.nav-btn[data-page]').forEach(b =>
+    b.classList.toggle('active', b.dataset.page === page)
+  );
+  if (page === 'agents')      renderAgentsTable();
+  if (page === 'results')     renderResultsTable();
+  if (page === 'schedule')    renderSchedule();
+  if (page === 'admin')       renderAdminPage();
+  if (page === 'methodology') updateMethodologyTargets();
+}
+
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+function renderDashboardEmpty() {
+  ['stat-agents','stat-q1','stat-q2','stat-q3','stat-q4','stat-weekly'].forEach(id => {
+    document.getElementById(id).textContent = '—';
+  });
+}
+
+function renderDashboard() {
+  const results = cachedResults;
+  const n = cachedData.length;
+  document.getElementById('stat-agents').textContent = n;
+
+  if (results.length === 0) {
+    renderDashboardEmpty();
+    return;
+  }
+
+  const q1 = results.filter(r => r.finalQuartile === 'Q1').length;
+  const q2 = results.filter(r => r.finalQuartile === 'Q2').length;
+  const q3 = results.filter(r => r.finalQuartile === 'Q3').length;
+  const q4 = results.filter(r => r.finalQuartile === 'Q4').length;
+  const weekly = results.filter(r => r.coachingFrequency === 'Weekly coaching').length;
+
+  document.getElementById('stat-q1').textContent = q1;
+  document.getElementById('stat-q2').textContent = q2;
+  document.getElementById('stat-q3').textContent = q3;
+  document.getElementById('stat-q4').textContent = q4;
+  document.getElementById('stat-weekly').textContent = weekly;
+
+  // Health banner
+  if (lastRunData?.teamHealth) {
+    const th = lastRunData.teamHealth;
+    const pct = th.atTargetPct;
+    const cls = pct >= 70 ? 'good' : pct >= 40 ? 'warn' : 'bad';
+    document.getElementById('health-banner-wrap').innerHTML = `
+      <div class="health-banner ${cls}">
+        <strong>Team Health: ${pct}% of agents meeting all KPI targets.</strong>
+        Biggest risk: ${th.biggestRisk}. <em>${th.firstAction}</em>
+      </div>`;
+  }
+
+  buildCharts(results);
+}
+
+function buildCharts(results) {
+  const destroy = id => { if (charts[id]) { charts[id].destroy(); delete charts[id]; } };
+
+  // Quartile distribution
+  destroy('q');
+  const qCtx = document.getElementById('chart-quartile').getContext('2d');
+  charts['q'] = new Chart(qCtx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Q1 Top','Q2 Good','Q3 Medium','Q4 Bottom'],
+      datasets: [{
+        data: [
+          results.filter(r=>r.finalQuartile==='Q1').length,
+          results.filter(r=>r.finalQuartile==='Q2').length,
+          results.filter(r=>r.finalQuartile==='Q3').length,
+          results.filter(r=>r.finalQuartile==='Q4').length,
+        ],
+        backgroundColor: ['#218848','#475CC7','#FFB81C','#FF6A14'],
+        borderWidth: 0,
+      }],
+    },
+    options: { plugins: { title: { display: true, text: 'Quartile Distribution', font: { size: 14, weight: 'bold' } } }, cutout: '55%' },
+  });
+
+  // Coaching frequency
+  destroy('c');
+  const cCtx = document.getElementById('chart-coaching').getContext('2d');
+  const freqMap = {};
+  results.forEach(r => { freqMap[r.coachingFrequency] = (freqMap[r.coachingFrequency]||0) + 1; });
+  const freqOrder = ['Weekly coaching','Bi-weekly coaching','Monthly check-in','Recognition only'];
+  charts['c'] = new Chart(cCtx, {
+    type: 'bar',
+    data: {
+      labels: freqOrder.filter(f => freqMap[f]),
+      datasets: [{
+        label: 'Agents',
+        data: freqOrder.filter(f=>freqMap[f]).map(f=>freqMap[f]),
+        backgroundColor: ['#FF6A14','#FFB81C','#475CC7','#218848'],
+        borderRadius: 6,
+      }],
+    },
+    options: { plugins: { title: { display: true, text: 'Coaching Frequency', font: { size: 14, weight: 'bold' } }, legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } },
+  });
+
+  // KPI averages vs targets
+  destroy('k');
+  const kCtx = document.getElementById('chart-kpi-avg').getContext('2d');
+  const avg = k => results.reduce((s,r)=>s+Number(r[k]||0),0)/results.length;
+  const tph = lastRunData?.targets?.tph || 5.0;
+  const csat = lastRunData?.targets?.csat || 80;
+  const iqs = lastRunData?.targets?.iqs || 85;
+  charts['k'] = new Chart(kCtx, {
+    type: 'bar',
+    data: {
+      labels: ['TPH','CSAT (%)','IQS (%)'],
+      datasets: [
+        { label: 'Team Avg', data: [+avg('tph').toFixed(2), +avg('csat').toFixed(1), +avg('iqs').toFixed(1)], backgroundColor: '#475CC7', borderRadius: 6 },
+        { label: 'Target',   data: [tph, csat, iqs], backgroundColor: '#B8CDC8', borderRadius: 6, borderWidth: 2, borderColor: '#24272A' },
+      ],
+    },
+    options: { plugins: { title: { display: true, text: 'Team Avg vs Targets', font: { size: 14, weight: 'bold' } } }, scales: { y: { beginAtZero: false } } },
+  });
+
+  // Composite score scatter
+  destroy('s');
+  const sCtx = document.getElementById('chart-composite').getContext('2d');
+  const colorMap = { Q1:'#218848', Q2:'#475CC7', Q3:'#FFB81C', Q4:'#FF6A14' };
+  const qGroups = ['Q1','Q2','Q3','Q4'].map(q => ({
+    label: q,
+    data: results.filter(r=>r.finalQuartile===q).map((r,i)=>({ x: +r.compositeScore, y: +r.compositeScore, label: r.agentName })),
+    backgroundColor: colorMap[q],
+    pointRadius: 8,
+  }));
+  charts['s'] = new Chart(sCtx, {
+    type: 'scatter',
+    data: { datasets: qGroups },
+    options: {
+      plugins: {
+        title: { display: true, text: 'Composite Score by Agent', font: { size: 14, weight: 'bold' } },
+        tooltip: { callbacks: { label: ctx => `${ctx.raw.label}: ${ctx.raw.x.toFixed(4)}` } },
+      },
+      scales: { x: { min: 0, max: 1, title: { display: true, text: 'Composite Score' } }, y: { display: false } },
+    },
+  });
+}
+
+// ─── AGENTS TABLE ─────────────────────────────────────────────────────────────
+function renderAgentsTable() {
+  const q  = (document.getElementById('agent-search')?.value || '').toLowerCase();
+  const sv = document.getElementById('filter-agent-supervisor')?.value || '';
+  const agents = cachedData.filter(a => {
+    const matchSearch = !q || a.agentName.toLowerCase().includes(q) || String(a.agentId).toLowerCase().includes(q) || (a.supervisor||'').toLowerCase().includes(q);
+    const matchSv = !sv || String(a.supervisor||'').trim() === sv;
+    return matchSearch && matchSv;
+  });
+  const canEdit = canWrite();
+  const tbody = document.getElementById('agents-tbody');
+  if (!agents.length) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:2rem;font-style:italic">No agents found.</td></tr>`; return; }
+
+  const tphTarget  = Number(cachedConfig.tph_target  || 5.0);
+  const csatTarget = Number(cachedConfig.csat_target || 80);
+  const iqsTarget  = Number(cachedConfig.iqs_target  || 85);
+
+  tbody.innerHTML = agents.map(a => {
+    const tphOk  = Number(a.tph)  >= tphTarget;
+    const csatOk = Number(a.csat) >= csatTarget;
+    const iqsOk  = Number(a.iqs)  >= iqsTarget;
+    return `<tr>
+      <td style="font-size:.78rem;color:var(--muted)">${esc(a.agentId)}</td>
+      <td><strong>${esc(a.agentName)}</strong></td>
+      <td style="font-size:.82rem">${esc(a.supervisor||'—')}</td>
+      <td><span style="color:${tphOk?'var(--earth)':'var(--magenta)'};font-weight:700">${a.tph}</span></td>
+      <td><span style="color:${csatOk?'var(--earth)':'var(--magenta)'};font-weight:700">${a.csat}%</span></td>
+      <td><span style="color:${iqsOk?'var(--earth)':'var(--magenta)'};font-weight:700">${a.iqs}%</span></td>
+      <td style="font-size:.78rem;color:var(--muted)">${esc(a.period||'')}</td>
+      <td>${canEdit ? `<button class="btn btn-sm btn-ghost" onclick="openEditAgent('${esc(a.agentId)}')">Edit</button>
+           <button class="btn btn-sm btn-danger" onclick="openDeleteAgent('${esc(a.agentId)}','${esc(a.agentName)}')">Delete</button>` : '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── RESULTS TABLE ────────────────────────────────────────────────────────────
+function renderResultsTable() {
+  const qFilter  = document.getElementById('filter-quartile')?.value || '';
+  const svFilter = document.getElementById('filter-supervisor')?.value || '';
+  const results  = cachedResults.filter(r =>
+    (!qFilter  || r.finalQuartile === qFilter) &&
+    (!svFilter || String(r.supervisor||'').trim() === svFilter)
+  );
+
+  const empty = document.getElementById('results-empty');
+  if (cachedResults.length === 0) { empty.style.display=''; renderValidation(); return; }
+  empty.style.display = 'none';
+  renderValidation();
+
+  const grouped = { Q1:[], Q2:[], Q3:[], Q4:[] };
+  results.forEach(r => (grouped[r.finalQuartile] || grouped.Q4).push(r));
+
+  const qLabels = { Q1:'Q1 TOP PERFORMERS', Q2:'Q2 GOOD PERFORMERS', Q3:'Q3 MEDIUM PERFORMERS', Q4:'Q4 BOTTOM PERFORMERS' };
+  const tbody = document.getElementById('results-tbody');
+  let html = '';
+
+  ['Q1','Q2','Q3','Q4'].forEach(q => {
+    if (!grouped[q].length) return;
+    html += `<tr><td colspan="15"><div class="q-group-header ${q.toLowerCase()}h">── ${qLabels[q]} (${grouped[q].length} agents) ──</div></td></tr>`;
+    grouped[q].forEach(r => {
+      const overrideTxt = r.overrideFlag ? `<div class="override-flag">⚠ ${esc(r.overrideFlag)}</div>` : '—';
+      const coachClass = coachingClass(r.coachingFrequency);
+      html += `<tr>
+        <td style="font-weight:700">${r.rank}</td>
+        <td><strong>${esc(r.agentName)}</strong><div style="font-size:.72rem;color:var(--muted)">${esc(r.agentId)}</div></td>
+        <td style="font-size:.82rem;color:var(--muted)">${esc(r.supervisor||'—')}</td>
+        <td>${r.tph}</td><td>${r.csat}%</td><td>${r.iqs}%</td>
+        <td class="${r.tphVsTarget?.startsWith('✓')?'target-ok':'target-fail'}">${esc(r.tphVsTarget||'')}</td>
+        <td class="${r.csatVsTarget?.startsWith('✓')?'target-ok':'target-fail'}">${esc(r.csatVsTarget||'')}</td>
+        <td class="${r.iqsVsTarget?.startsWith('✓')?'target-ok':'target-fail'}">${esc(r.iqsVsTarget||'')}</td>
+        <td style="text-align:center"><span style="background:${r.kpisBelowTarget>0?'#FFE8D9':'#D6EFE0'};color:${r.kpisBelowTarget>0?'#8B2E00':'#155227'};padding:.2rem .5rem;border-radius:999px;font-weight:700;font-size:.78rem">${r.kpisBelowTarget}</span></td>
+        <td style="font-family:monospace;font-weight:700">${(+r.compositeScore).toFixed(4)}</td>
+        <td><span class="q-badge ${(r.initialQuartile||'').toLowerCase()}">${esc(r.initialQuartile||'')}</span></td>
+        <td><span class="q-badge ${(r.finalQuartile||'').toLowerCase()}">${esc(r.finalQuartile||'')}</span></td>
+        <td>${overrideTxt}</td>
+        <td><span class="coaching-badge ${coachClass}">${esc(r.coachingFrequency||'')}</span></td>
+      </tr>`;
+    });
+  });
+
+  if (!html) html = `<tr><td colspan="15" style="text-align:center;color:var(--muted);padding:2rem;font-style:italic">No agents match the selected filters.</td></tr>`;
+  tbody.innerHTML = html;
+}
+
+function renderValidation() {
+  const sec = document.getElementById('validation-section');
+  if (!lastRunData?.validation) { sec.style.display='none'; return; }
+  sec.style.display = '';
+  const v = lastRunData.validation;
+  const kpis = [
+    { key:'tph',  label:'TPH',  target: lastRunData.targets?.tph  || 5.0,  unit:'' },
+    { key:'csat', label:'CSAT', target: lastRunData.targets?.csat || 80,   unit:'%' },
+    { key:'iqs',  label:'IQS',  target: lastRunData.targets?.iqs  || 85,   unit:'%' },
+  ];
+  document.getElementById('validation-body').innerHTML = `
+    <div style="margin-bottom:.75rem;font-size:.85rem;color:var(--muted)">Total agents: <strong>${v.agentCount}</strong></div>
+    <div class="val-grid">
+      ${kpis.map(k => {
+        const s = v[k.key];
+        if (!s) return '';
+        return `<div class="val-kpi-card">
+          <div class="val-kpi-title" style="color:var(--sea)">${k.label} (target: ${k.target}${k.unit})</div>
+          <div class="val-row"><span class="val-key">Avg</span><span class="val-val">${s.avg}${k.unit}</span></div>
+          <div class="val-row"><span class="val-key">Min</span><span class="val-val">${s.min}${k.unit}</span></div>
+          <div class="val-row"><span class="val-key">Max</span><span class="val-val">${s.max}${k.unit}</span></div>
+          <div class="val-row"><span class="val-key">Std Dev</span><span class="val-val">${s.std}${k.unit}</span></div>
+          <div class="val-row"><span class="val-key">Meeting target</span><span class="val-val">${s.meetCount} / ${v.agentCount} (${s.meetPct}%)</span></div>
+          ${s.outliers?.length ? `<div class="val-row"><span class="val-key">Outliers (>2σ)</span><span class="val-val">${s.outliers.map(o=>`<span class="outlier-chip">${esc(o)}</span>`).join(' ')}</span></div>` : ''}
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+// ─── COACHING SCHEDULE ────────────────────────────────────────────────────────
+function renderSchedule() {
+  const empty   = document.getElementById('schedule-empty');
+  const svFilter = document.getElementById('filter-schedule-supervisor')?.value || '';
+
+  if (!cachedResults.length) { empty.style.display = ''; document.getElementById('workload-wrap').style.display = 'none'; return; }
+  empty.style.display = 'none';
+
+  const filtered = svFilter
+    ? cachedResults.filter(r => String(r.supervisor||'').trim() === svFilter)
+    : cachedResults;
+
+  // ── Overall workload summary (always full team, not filtered) ──────────────
+  if (lastRunData?.workload) {
+    const wl = lastRunData.workload;
+    document.getElementById('workload-wrap').style.display = '';
+    document.getElementById('workload-grid').innerHTML = `
+      <div class="wl-card weekly"><div class="wl-num" style="color:#8B2E00">${wl.weekly}</div><div class="wl-lbl">Weekly Coaching</div></div>
+      <div class="wl-card biweekly"><div class="wl-num" style="color:#7A5200">${wl.biweekly}</div><div class="wl-lbl">Bi-weekly Coaching</div></div>
+      <div class="wl-card monthly"><div class="wl-num" style="color:#263580">${wl.monthly}</div><div class="wl-lbl">Monthly / Recognition</div></div>
+      <div class="wl-card hours"><div class="wl-num" style="color:#155227">${wl.weeklyHrs}h</div><div class="wl-lbl">Est. Weekly Hours (team)</div></div>
+    `;
+  }
+
+  // ── Per-supervisor breakdown table ─────────────────────────────────────────
+  const svBreakdown = document.getElementById('supervisor-breakdown');
+  const allSupervisors = [...new Set(cachedResults.map(r => String(r.supervisor||'Unassigned').trim()))].sort();
+
+  if (allSupervisors.length > 1) {
+    const freqOrder = { 'Weekly coaching':0, 'Bi-weekly coaching':1, 'Monthly check-in':2, 'Recognition only':3 };
+    const rows = allSupervisors.map(sv => {
+      const team    = cachedResults.filter(r => String(r.supervisor||'Unassigned').trim() === sv);
+      const weekly  = team.filter(r => r.coachingFrequency === 'Weekly coaching').length;
+      const biwkly  = team.filter(r => r.coachingFrequency === 'Bi-weekly coaching').length;
+      const monthly = team.filter(r => ['Monthly check-in','Recognition only'].includes(r.coachingFrequency)).length;
+      const hrs     = Math.round(((weekly * 0.75) + (biwkly * 0.375)) * 10) / 10;
+      const q4count = team.filter(r => r.finalQuartile === 'Q4').length;
+      const avgScore = team.length ? (team.reduce((s,r) => s + Number(r.compositeScore||0), 0) / team.length).toFixed(3) : '—';
+      return { sv, total: team.length, weekly, biwkly, monthly, hrs, q4count, avgScore };
+    });
+
+    svBreakdown.innerHTML = `
+      <div style="margin-top:.25rem">
+        <div style="font-size:.85rem;font-weight:700;color:var(--text);margin-bottom:.6rem">📋 Per-Supervisor Breakdown</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Supervisor</th><th>Agents</th><th>Avg Score</th>
+              <th><span class="coaching-badge coaching-weekly">Weekly</span></th>
+              <th><span class="coaching-badge coaching-biweekly">Bi-weekly</span></th>
+              <th><span class="coaching-badge coaching-monthly">Monthly+</span></th>
+              <th>Q4 Agents</th><th>Est. Hrs/wk</th>
+            </tr></thead>
+            <tbody>
+              ${rows.map(r => `<tr>
+                <td><strong>${esc(r.sv)}</strong></td>
+                <td style="text-align:center">${r.total}</td>
+                <td style="font-family:monospace;font-weight:700">${r.avgScore}</td>
+                <td style="text-align:center"><span style="color:#8B2E00;font-weight:700">${r.weekly}</span></td>
+                <td style="text-align:center"><span style="color:#7A5200;font-weight:700">${r.biwkly}</span></td>
+                <td style="text-align:center"><span style="color:#263580;font-weight:700">${r.monthly}</span></td>
+                <td style="text-align:center">
+                  ${r.q4count > 0
+                    ? `<span style="background:#FFE8D9;color:#8B2E00;padding:.2rem .5rem;border-radius:999px;font-weight:700;font-size:.78rem">${r.q4count}</span>`
+                    : `<span style="color:var(--muted)">—</span>`}
+                </td>
+                <td style="text-align:center;font-weight:700">${r.hrs}h</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  } else {
+    svBreakdown.innerHTML = '';
+  }
+
+  // ── Schedule table ─────────────────────────────────────────────────────────
+  const freqOrder = { 'Weekly coaching':0, 'Bi-weekly coaching':1, 'Monthly check-in':2, 'Recognition only':3 };
+  const sorted = [...filtered].sort((a, b) =>
+    (freqOrder[a.coachingFrequency]||9) - (freqOrder[b.coachingFrequency]||9)
+  );
+
+  if (!sorted.length) {
+    document.getElementById('schedule-tbody').innerHTML =
+      `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:2rem;font-style:italic">No agents match the selected supervisor filter.</td></tr>`;
+    return;
+  }
+
+  document.getElementById('schedule-tbody').innerHTML = sorted.map((r, i) => {
+    const coachClass = coachingClass(r.coachingFrequency);
+    return `<tr>
+      <td style="font-weight:700;color:var(--muted)">${i + 1}</td>
+      <td><strong>${esc(r.agentName)}</strong><div style="font-size:.72rem;color:var(--muted)">${esc(r.agentId)}</div></td>
+      <td style="font-size:.82rem;color:var(--muted)">${esc(r.supervisor||'—')}</td>
+      <td><span class="q-badge ${(r.finalQuartile||'').toLowerCase()}">${esc(r.finalQuartile||'')}</span></td>
+      <td><span class="coaching-badge ${coachClass}">${esc(r.coachingFrequency||'')}</span></td>
+      <td style="font-size:.82rem;color:var(--muted);max-width:280px">${esc(r.focusArea||'')}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── AGENT CRUD ───────────────────────────────────────────────────────────────
+function openAddAgent() {
+  editingAgentId = null;
+  document.getElementById('modal-agent-title').textContent = 'Add Agent';
+  ['f-agentId','f-agentName','f-supervisor','f-tph','f-csat','f-iqs'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('f-period').value    = 'Last 30 days';
+  document.getElementById('f-agentId').disabled = false;
+  document.getElementById('modal-agent').classList.add('open');
+}
+
+function openEditAgent(agentId) {
+  const a = cachedData.find(x => String(x.agentId) === String(agentId));
+  if (!a) return;
+  editingAgentId = agentId;
+  document.getElementById('modal-agent-title').textContent  = 'Edit Agent';
+  document.getElementById('f-agentId').value    = a.agentId;
+  document.getElementById('f-agentId').disabled = true;
+  document.getElementById('f-agentName').value  = a.agentName;
+  document.getElementById('f-supervisor').value = a.supervisor || '';
+  document.getElementById('f-tph').value         = a.tph;
+  document.getElementById('f-csat').value        = a.csat;
+  document.getElementById('f-iqs').value         = a.iqs;
+  document.getElementById('f-period').value      = a.period || 'Last 30 days';
+  document.getElementById('modal-agent').classList.add('open');
+}
+
+async function saveAgent() {
+  const agent = {
+    agentId:    document.getElementById('f-agentId').value.trim(),
+    agentName:  document.getElementById('f-agentName').value.trim(),
+    supervisor: document.getElementById('f-supervisor').value.trim(),
+    tph:        document.getElementById('f-tph').value,
+    csat:       document.getElementById('f-csat').value,
+    iqs:        document.getElementById('f-iqs').value,
+    period:     document.getElementById('f-period').value,
+  };
+  if (!agent.agentId || !agent.agentName || agent.tph==='' || agent.csat==='' || agent.iqs==='') {
+    showToast('Please fill all required fields (ID, Name, TPH, CSAT, IQS).', '#AA0061'); return;
+  }
+  showLoading(true, 'Saving…');
+  try {
+    const action = editingAgentId ? 'updateAgent' : 'addAgent';
+    const data = await apiPost({ action, agent });
+    if (data.error) throw new Error(data.error);
+    closeModal('modal-agent');
+    await apiFetch();
+    renderAgentsTable();
+    populateSupervisorFilters();
+    showToast(`✓ Agent ${editingAgentId ? 'updated' : 'added'}!`, '#218848');
+  } catch (err) { showToast('Error: ' + err.message, '#AA0061'); }
+  finally { showLoading(false); }
+}
+
+function openDeleteAgent(agentId, name) {
+  deleteAgentId = agentId;
+  document.getElementById('confirm-msg').textContent = `Delete agent "${name}"? This cannot be undone.`;
+  document.getElementById('modal-confirm').classList.add('open');
+}
+
+async function confirmDelete() {
+  showLoading(true, 'Deleting…');
+  closeModal('modal-confirm');
+  try {
+    const data = await apiPost({ action: 'deleteAgent', agentId: deleteAgentId });
+    if (data.error) throw new Error(data.error);
+    await apiFetch();
+    renderAgentsTable();
+    showToast('✓ Agent deleted.', '#10B981');
+  } catch (err) { showToast('Error: ' + err.message, '#EF4444'); }
+  finally { showLoading(false); }
+}
+
+// ─── ADMIN ────────────────────────────────────────────────────────────────────
+function renderAdminPage() {
+  document.getElementById('admin-url').value = scriptUrl();
+  populateAdminConfig();
+  loadRoles();
+}
+
+function populateAdminConfig() {
+  const c = cachedConfig;
+  document.getElementById('cfg-tph-target').value  = c.tph_target  || 5.0;
+  document.getElementById('cfg-csat-target').value = c.csat_target || 80;
+  document.getElementById('cfg-iqs-target').value  = c.iqs_target  || 85;
+  document.getElementById('cfg-tph-weight').value  = c.tph_weight  || 0.40;
+  document.getElementById('cfg-csat-weight').value = c.csat_weight || 0.40;
+  document.getElementById('cfg-iqs-weight').value  = c.iqs_weight  || 0.20;
+}
+
+function saveUrl() {
+  const url = document.getElementById('admin-url').value.trim();
+  if (!url) return;
+  localStorage.setItem(CFG_KEY + '_url', url);
+  showToast('URL saved. Reconnecting…', '#10B981');
+  apiFetch().then(renderDashboard);
+}
+
+async function saveConfig() {
+  const pairs = [
+    ['tph_target',  document.getElementById('cfg-tph-target').value],
+    ['csat_target', document.getElementById('cfg-csat-target').value],
+    ['iqs_target',  document.getElementById('cfg-iqs-target').value],
+    ['tph_weight',  document.getElementById('cfg-tph-weight').value],
+    ['csat_weight', document.getElementById('cfg-csat-weight').value],
+    ['iqs_weight',  document.getElementById('cfg-iqs-weight').value],
+  ];
+  const wSum = parseFloat(document.getElementById('cfg-tph-weight').value)
+             + parseFloat(document.getElementById('cfg-csat-weight').value)
+             + parseFloat(document.getElementById('cfg-iqs-weight').value);
+  if (Math.abs(wSum - 1) > 0.01) {
+    showToast(`Weights must sum to 1.0 (currently ${wSum.toFixed(2)})`, '#EF4444'); return;
+  }
+  showLoading(true, 'Saving config…');
+  try {
+    for (const [key, value] of pairs) {
+      const data = await apiPost({ action: 'updateConfig', key, value: parseFloat(value) });
+      if (data.error) throw new Error(data.error);
+    }
+    await apiFetch();
+    showToast('✓ Configuration saved!', '#10B981');
+    updateMethodologyTargets();
+  } catch (err) { showToast('Error: ' + err.message, '#EF4444'); }
+  finally { showLoading(false); }
+}
+
+async function loadRoles() {
+  try {
+    const u = getUser();
+    const url = scriptUrl() + `?email=${encodeURIComponent(u?.email||'')}&action=getRoles`;
+    const res = await fetch(url, { redirect:'follow' });
+    const data = await res.json();
+    if (data.error || !data.roles) { document.getElementById('roles-list').innerHTML = '<p style="color:var(--muted);font-size:.83rem">No roles configured yet.</p>'; return; }
+    document.getElementById('roles-list').innerHTML = `<table style="font-size:.83rem;width:100%"><thead><tr><th>Email</th><th>Role</th><th>Assigned By</th><th></th></tr></thead><tbody>
+      ${data.roles.map(r => `<tr><td>${esc(r.email)}</td><td><strong>${esc(r.role)}</strong></td><td style="color:var(--muted)">${esc(r.assignedBy||'')}</td>
+        <td><button class="btn btn-sm btn-danger" onclick="removeRole('${esc(r.email)}')">Remove</button></td></tr>`).join('')}
+    </tbody></table>`;
+  } catch { }
+}
+
+async function addRole() {
+  const email = document.getElementById('role-email').value.trim().toLowerCase();
+  const role  = document.getElementById('role-select').value;
+  if (!email) { showToast('Enter an email.', '#EF4444'); return; }
+  const data = await apiPost({ action: 'updateRoles', subAction: 'add', targetEmail: email, role });
+  if (data.error) { showToast(data.error, '#EF4444'); return; }
+  showToast('✓ Role updated!', '#10B981');
+  loadRoles();
+}
+
+async function removeRole(email) {
+  const data = await apiPost({ action: 'updateRoles', subAction: 'remove', targetEmail: email });
+  if (data.error) { showToast(data.error, '#EF4444'); return; }
+  showToast('✓ Role removed.', '#10B981');
+  loadRoles();
+}
+
+// ─── METHODOLOGY ──────────────────────────────────────────────────────────────
+function updateMethodologyTargets() {
+  const c = cachedConfig;
+  document.getElementById('m-tph-target').textContent  = (c.tph_target  || 5.0) + ' tickets/hr';
+  document.getElementById('m-csat-target').textContent = (c.csat_target || 80)   + '%';
+  document.getElementById('m-iqs-target').textContent  = (c.iqs_target  || 85)   + '%';
+}
+
+function toggleAccordion(header) {
+  const body = header.nextElementSibling;
+  const chevron = header.querySelector('.accordion-chevron');
+  body.classList.toggle('open');
+  chevron.classList.toggle('open');
+}
+
+// ─── CSV EXPORTS ──────────────────────────────────────────────────────────────
+
+// Helper: trigger CSV download
+function downloadCSV(filename, headers, rows) {
+  const csv = [
+    headers.join(','),
+    ...rows.map(r => headers.map(h => '"' + String(r[h]||'').replace(/"/g,'""') + '"').join(','))
+  ].join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv); // \uFEFF = BOM for Excel UTF-8
+  a.download = filename + '_' + new Date().toISOString().split('T')[0] + '.csv';
+  a.click();
+  showToast('✓ CSV downloaded!', '#218848');
+}
+
+// Full quartilization results (respects current supervisor + quartile filters)
+function exportResults() {
+  if (!cachedResults.length) { showToast('Run quartilization first.', '#FFB81C'); return; }
+  const qFilter  = document.getElementById('filter-quartile')?.value  || '';
+  const svFilter = document.getElementById('filter-supervisor')?.value || '';
+  const rows = cachedResults.filter(r =>
+    (!qFilter  || r.finalQuartile === qFilter) &&
+    (!svFilter || String(r.supervisor||'').trim() === svFilter)
+  );
+  const headers = [
+    'rank','agentId','agentName','supervisor',
+    'tph','csat','iqs',
+    'tphVsTarget','csatVsTarget','iqsVsTarget','kpisBelowTarget',
+    'tphNorm','csatNorm','iqsNorm','compositeScore',
+    'initialQuartile','finalQuartile','overrideFlag',
+    'coachingFrequency','focusArea'
+  ];
+  // Map to display-friendly column names for the header row
+  const displayHeaders = [
+    'Rank','Agent ID','Agent Name','Supervisor',
+    'TPH','CSAT %','IQS %',
+    'TPH vs Target','CSAT vs Target','IQS vs Target','KPIs Below Target',
+    'TPH Norm','CSAT Norm','IQS Norm','Composite Score',
+    'Initial Quartile','Final Quartile','Override Flag',
+    'Coaching Frequency','Focus Area'
+  ];
+  const csv = [
+    displayHeaders.join(','),
+    ...rows.map(r => headers.map(k => '"' + String(r[k]||'').replace(/"/g,'""') + '"').join(','))
+  ].join('\n');
+  const a = document.createElement('a');
+  const label = svFilter ? `_${svFilter.replace(/\s+/g,'_')}` : '';
+  a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
+  a.download = `cx_results${label}_${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+  showToast(`✓ Exported ${rows.length} agents to CSV`, '#218848');
+}
+
+// Coaching schedule CSV (respects supervisor filter)
+function exportScheduleCSV() {
+  if (!cachedResults.length) { showToast('Run quartilization first.', '#FFB81C'); return; }
+  const svFilter = document.getElementById('filter-schedule-supervisor')?.value || '';
+  const freqOrder = { 'Weekly coaching':0, 'Bi-weekly coaching':1, 'Monthly check-in':2, 'Recognition only':3 };
+  const rows = [...cachedResults]
+    .filter(r => !svFilter || String(r.supervisor||'').trim() === svFilter)
+    .sort((a,b) => (freqOrder[a.coachingFrequency]||9) - (freqOrder[b.coachingFrequency]||9))
+    .map((r, i) => ({
+      'Priority':          i + 1,
+      'Agent ID':          r.agentId,
+      'Agent Name':        r.agentName,
+      'Supervisor':        r.supervisor || '',
+      'Final Quartile':    r.finalQuartile,
+      'Coaching Frequency':r.coachingFrequency,
+      'Focus Area':        r.focusArea || '',
+      'TPH':               r.tph,
+      'CSAT %':            r.csat,
+      'IQS %':             r.iqs,
+      'KPIs Below Target': r.kpisBelowTarget,
+      'Composite Score':   r.compositeScore,
+      'Override Flag':     r.overrideFlag || '',
+    }));
+  const headers = Object.keys(rows[0]);
+  const label = svFilter ? `_${svFilter.replace(/\s+/g,'_')}` : '';
+  const csv = [
+    headers.join(','),
+    ...rows.map(r => headers.map(h => '"' + String(r[h]||'').replace(/"/g,'""') + '"').join(','))
+  ].join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
+  a.download = `cx_schedule${label}_${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+  showToast(`✓ Schedule exported for ${rows.length} agents`, '#218848');
+}
+
+// Raw agents CSV (respects supervisor + search filters)
+function exportAgentsCSV() {
+  if (!cachedData.length) { showToast('No agents to export.', '#FFB81C'); return; }
+  const svFilter = document.getElementById('filter-agent-supervisor')?.value || '';
+  const q        = (document.getElementById('agent-search')?.value || '').toLowerCase();
+  const rows = cachedData
+    .filter(a => (!svFilter || String(a.supervisor||'').trim() === svFilter) &&
+                 (!q || a.agentName.toLowerCase().includes(q) || String(a.agentId).toLowerCase().includes(q)))
+    .map(a => ({
+      'Agent ID':  a.agentId,
+      'Agent Name':a.agentName,
+      'Supervisor':a.supervisor || '',
+      'TPH':       a.tph,
+      'CSAT %':    a.csat,
+      'IQS %':     a.iqs,
+      'Period':    a.period || '',
+    }));
+  const headers = Object.keys(rows[0]);
+  const csv = [
+    headers.join(','),
+    ...rows.map(r => headers.map(h => '"' + String(r[h]||'').replace(/"/g,'""') + '"').join(','))
+  ].join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
+  a.download = `cx_agents_${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+  showToast(`✓ Exported ${rows.length} agents`, '#218848');
+}
+
+// ─── ROLE / AUTH ──────────────────────────────────────────────────────────────
+function canWrite() {
+  const u = getUser();
+  return cachedRole === 'admin' || cachedRole === 'coach' ||
+         (u && u.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase());
+}
+function isCurrentUserAdmin() {
+  const u = getUser();
+  return cachedRole === 'admin' || (u && u.email.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase());
+}
+function updateRoleUI() {
+  document.getElementById('btn-admin').style.display = isCurrentUserAdmin() ? '' : 'none';
+}
+
+// ─── UTILITIES ────────────────────────────────────────────────────────────────
+function coachingClass(f) {
+  if (f === 'Weekly coaching')   return 'coaching-weekly';
+  if (f === 'Bi-weekly coaching')return 'coaching-biweekly';
+  if (f === 'Monthly check-in')  return 'coaching-monthly';
+  return 'coaching-recognition';
+}
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function showLoading(on, msg='Loading…') {
+  document.getElementById('loading-overlay').style.display = on ? 'flex' : 'none';
+  document.getElementById('loading-msg').textContent = msg;
+}
+function showToast(msg, color='#10B981') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.background = color;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+// ─── BOOT ─────────────────────────────────────────────────────────────────────
+(function boot() {
+  const user = getUser();
+  if (user) {
+    document.getElementById('login-overlay').style.display = 'none';
+    document.getElementById('main-navbar').style.display   = '';
+    initApp();
+  }
+})();
+</script>
+</body>
+</html>
