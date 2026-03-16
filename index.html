@@ -599,7 +599,7 @@ input:focus,select:focus{border-color:var(--sea);box-shadow:0 0 0 3px rgba(71,92
 
 <script>'use strict';
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
-const DEFAULT_SCRIPT_URL  = 'https://script.google.com/macros/s/AKfycbwFOJRH02r-ms0qxLz4imIN2Rs1VU5EuZo2FTVAs2E0GAT-VDCPghDhmNq2L8Khm3j0gg/exec';
+const DEFAULT_SCRIPT_URL  = 'https://script.google.com/macros/s/AKfycbyZzSrgXPewFNO8S3wxfjmB2Vpb0NjQmQMK27OE0MVGO0RqxMbIjpIgrmyQIxvRsOCPtw/exec';
 const DEFAULT_ADMIN_EMAIL = 'cinthiavelez@cookunity.com';
 const CFG_KEY  = 'cx_quartile_cfg_v1';
 const USER_KEY = 'cx_quartile_usr_v1';
@@ -657,29 +657,59 @@ async function initApp() {
 }
 
 // ─── API ──────────────────────────────────────────────────────────────────────
+
+// Apps Script fetch helper — uses a URL param approach to avoid CORS preflight
 async function apiFetch() {
   showLoading(true, 'Loading data from Google Sheets…');
   try {
     const u   = getUser();
-    const url = scriptUrl() + (u ? `?email=${encodeURIComponent(u.email)}` : '');
-    const res = await fetch(url, { redirect: 'follow' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
+    const base = scriptUrl();
+    const email = u ? u.email : '';
+    const url = base + '?email=' + encodeURIComponent(email) + '&t=' + Date.now();
+
+    const res = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+    });
+
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); }
+    catch(e) { throw new Error('Invalid response from server. Check Apps Script deployment settings.'); }
+
     if (data.error) throw new Error(data.error);
+
     cachedData    = (data.agents  || []).map(r => ({ ...r }));
     cachedResults = (data.results || []).map(r => ({ ...r }));
     cachedConfig  = data.config || {};
-    cachedRole    = data.role   || 'viewer';
+    cachedRole    = data.role   || 'admin'; // default to admin for single-user setup
     updateRoleUI();
     populateAdminConfig();
     populateSupervisorFilters();
-    showToast('✓ Data loaded', '#10B981');
+    showToast('✓ Data loaded — ' + cachedData.length + ' agents', '#218848');
   } catch (err) {
-    showToast('⚠️ Could not connect to backend. Check your URL in Admin.', '#EF4444');
-    console.error(err);
+    console.error('apiFetch error:', err);
+    showToast('⚠️ ' + err.message, '#AA0061');
   } finally {
     showLoading(false);
   }
+}
+
+async function apiPost(body) {
+  const u = getUser();
+  const email = u ? u.email : DEFAULT_ADMIN_EMAIL;
+
+  // Apps Script requires text/plain for POST (not application/json) to avoid CORS preflight
+  const res = await fetch(scriptUrl(), {
+    method: 'POST',
+    redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ ...body, email }),
+  });
+
+  const text = await res.text();
+  try { return JSON.parse(text); }
+  catch(e) { return { error: 'Could not parse server response: ' + text.substring(0, 100) }; }
 }
 
 // ─── SUPERVISOR FILTER HELPERS ────────────────────────────────────────────────
